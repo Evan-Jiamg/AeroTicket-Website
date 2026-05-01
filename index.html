@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AeroTicket - 機票訂購系統</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <!-- React & ReactDOM (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel standalone for in-browser JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!--
+      載入順序必須與依賴關係一致：
+        1. data.js              — 共用 mock data (var → window global)
+        2. AuthForm             — 無外部依賴
+        3. BookingConfirmation  — 無外部依賴
+        4. TripLegBuilder       — 無外部元件依賴
+        5. FlightSearch         — 依賴 TripLegBuilder
+        6. JourneyManager       — 依賴 FlightSearch、BookingConfirmation
+        7. app.jsx              — 依賴 AuthForm、JourneyManager
+    -->
+
+    <!-- Mock data (plain JS, defines window.companies / itineraries / dailyItineraries) -->
+    <script src="data.js"></script>
+
+    <!-- Components -->
+    <script type="text/babel" src="components/AuthForm.jsx"></script>
+    <script type="text/babel" src="components/BookingConfirmation.jsx"></script>
+    <script type="text/babel" src="components/TripLegBuilder.jsx"></script>
+    <script type="text/babel" src="components/FlightSearch.jsx"></script>
+    <script type="text/babel" src="components/JourneyManager.jsx"></script>
+
+    <!-- Entry point -->
+    <script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
