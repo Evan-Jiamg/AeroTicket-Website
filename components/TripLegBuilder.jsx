@@ -335,7 +335,7 @@ function TripLegBuilder({ selectedFlight, journeyInfo, onCancel, onSuccess }) {
           </div>
 
           <p style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>
-            選擇「暫不付款」後，可在「機票紀錄」分頁隨時完成付款。
+            選擇「暫不付款」後，可在「交易紀錄」分頁隨時完成付款。
           </p>
         </div>
       )}

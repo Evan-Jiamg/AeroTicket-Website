@@ -15,14 +15,18 @@ function JourneyManager({ user, onLogout }) {
 
   const [activeTab, setActiveTab] = useStateJM('profile');
 
-  // Booking completion banners
-  const [lastPaidTxnID,    setLastPaidTxnID]    = useStateJM(null);
-  const [lastBookingUnpaid, setLastBookingUnpaid] = useStateJM(false);
+  // Modals
+  const [bookingModalTxnID, setBookingModalTxnID] = useStateJM(null);
+  const [showUnpaidModal,   setShowUnpaidModal]   = useStateJM(false);
 
+  // Profile editing
+  const [isEditingProfile, setIsEditingProfile] = useStateJM(false);
+  const [profileForm, setProfileForm] = useStateJM({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [profileError, setProfileError] = useStateJM('');
 
-  // Pay-unpaid modal (in tickets tab)
-  const [showPayUnpaid,  setShowPayUnpaid]  = useStateJM(false);
-  const [payUnpaidForm,  setPayUnpaidForm]  = useStateJM({
+  // Pay-unpaid (in transactions tab)
+  const [showPayUnpaid, setShowPayUnpaid] = useStateJM(false);
+  const [payUnpaidForm, setPayUnpaidForm] = useStateJM({
     cardID: '', bankID: '', bankname: '', cardtype: 'VISA', dueDate: ''
   });
 
@@ -43,8 +47,8 @@ function JourneyManager({ user, onLogout }) {
     });
     setTickets(userTickets);
 
-    const allTxns    = JSON.parse(localStorage.getItem('aeroTicketTransactions') || '[]');
-    const userTxns   = allTxns.filter(t => t.memberID === user.memberID);
+    const allTxns  = JSON.parse(localStorage.getItem('aeroTicketTransactions') || '[]');
+    const userTxns = allTxns.filter(t => t.memberID === user.memberID);
     userTxns.sort((a, b) => new Date(b.transtime) - new Date(a.transtime));
     setTransactions(userTxns);
   };
@@ -79,16 +83,64 @@ function JourneyManager({ user, onLogout }) {
     setIsEditing(false);
   };
 
-  // ── Ticket actions ────────────────────────────────────────
-  const handleRefund = (ticketID) => {
-    if (!window.confirm('確定要申請退票嗎？退票後不可復原。')) return;
-    let all = JSON.parse(localStorage.getItem('aeroTicketTickets') || '[]');
-    all = all.map(t => t.ticketID === ticketID ? { ...t, status: 'Refunded' } : t);
-    localStorage.setItem('aeroTicketTickets', JSON.stringify(all));
-    loadData();
+  // ── Profile editing ───────────────────────────────────────
+  const openProfileEdit = () => {
+    setProfileForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    setProfileError('');
+    setIsEditingProfile(true);
   };
 
+  const handleProfileSave = () => {
+    setProfileError('');
+    if (!profileForm.currentPassword) {
+      setProfileError('請輸入目前密碼以驗證身份');
+      return;
+    }
+    let users = JSON.parse(localStorage.getItem('aeroTicketUsers') || '[]');
+    const userRecord = users.find(u => u.memberID === user.memberID);
+    if (!userRecord || userRecord.memberPassword !== profileForm.currentPassword) {
+      setProfileError('目前密碼錯誤');
+      return;
+    }
+    if (profileForm.newPassword) {
+      if (profileForm.newPassword !== profileForm.confirmPassword) {
+        setProfileError('新密碼與確認密碼不符');
+        return;
+      }
+      if (profileForm.newPassword.length < 4) {
+        setProfileError('新密碼至少需要 4 個字元');
+        return;
+      }
+      users = users.map(u => u.memberID === user.memberID ? { ...u, memberPassword: profileForm.newPassword } : u);
+      localStorage.setItem('aeroTicketUsers', JSON.stringify(users));
+      const current = JSON.parse(localStorage.getItem('currentUser') || 'null');
+      if (current && current.memberID === user.memberID) {
+        localStorage.setItem('currentUser', JSON.stringify({ ...current, memberPassword: profileForm.newPassword }));
+      }
+    }
+    setProfileForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    setIsEditingProfile(false);
+  };
 
+  const handleDeleteAccount = () => {
+    if (!profileForm.currentPassword) {
+      setProfileError('請先輸入目前密碼以確認身份');
+      return;
+    }
+    let users = JSON.parse(localStorage.getItem('aeroTicketUsers') || '[]');
+    const userRecord = users.find(u => u.memberID === user.memberID);
+    if (!userRecord || userRecord.memberPassword !== profileForm.currentPassword) {
+      setProfileError('密碼錯誤，無法驗證身份');
+      return;
+    }
+    if (!window.confirm(`確定要刪除帳號「${user.memberName}」嗎？此操作無法復原。`)) return;
+    users = users.filter(u => u.memberID !== user.memberID);
+    localStorage.setItem('aeroTicketUsers', JSON.stringify(users));
+    localStorage.removeItem('currentUser');
+    onLogout();
+  };
+
+  // ── Pay unpaid ────────────────────────────────────────────
   const handlePayUnpaid = () => {
     const unpaid = tickets.filter(t => t.status === 'Unpaid');
     if (!unpaid.length) return;
@@ -114,33 +166,83 @@ function JourneyManager({ user, onLogout }) {
     localStorage.setItem('aeroTicketTickets',      JSON.stringify(allTickets));
     setShowPayUnpaid(false);
     setPayUnpaidForm({ cardID: '', bankID: '', bankname: '', cardtype: 'VISA', dueDate: '' });
-    setLastBookingUnpaid(false);
-    setLastPaidTxnID(transactionID);
-    setActiveTab('transactions');
+    setBookingModalTxnID(transactionID);
     loadData();
   };
 
-  // ── Booking complete callback (from FlightSearch → TripLegBuilder) ──
+  // ── Booking complete callback ──────────────────────────────
   const handleBookingComplete = (transactionID) => {
     setIsSearchResultView(false);
     loadData();
     if (transactionID) {
-      setLastPaidTxnID(transactionID);
-      setLastBookingUnpaid(false);
-      setActiveTab('transactions');
+      setBookingModalTxnID(transactionID);
     } else {
-      setLastBookingUnpaid(true);
-      setLastPaidTxnID(null);
-      setActiveTab('tickets');
+      setShowUnpaidModal(true);
     }
   };
 
-  const unpaidCount = tickets.filter(t => t.status === 'Unpaid').length;
-  const unpaidTotal = tickets.filter(t => t.status === 'Unpaid').reduce((s, t) => s + t.ticketTotalPrice, 0);
+  const unpaidTickets = tickets.filter(t => t.status === 'Unpaid');
+  const unpaidCount   = unpaidTickets.length;
+  const unpaidTotal   = unpaidTickets.reduce((s, t) => s + t.ticketTotalPrice, 0);
+
+  // ── Modal overlay wrapper（portal 掛到 body，避免 transform 包住 fixed）──
+  const ModalOverlay = ({ children, maxWidth }) => {
+    const content = (
+      <div style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: '20px'
+      }}>
+        <div style={{
+          background: 'white', borderRadius: '16px', width: '100%',
+          maxWidth: maxWidth || '620px', maxHeight: '85vh', overflowY: 'auto'
+        }}>
+          {children}
+        </div>
+      </div>
+    );
+    return ReactDOM.createPortal(content, document.body);
+  };
 
   // ── Render ─────────────────────────────────────────────────
   return (
     <div className="dashboard-container">
+
+      {/* ── Modal: 訂票成功 ── */}
+      {bookingModalTxnID && (
+        <ModalOverlay maxWidth="640px">
+          <div style={{ padding: '24px' }}>
+            <BookingConfirmation
+              transactionID={bookingModalTxnID}
+              memberID={user.memberID}
+              onClose={() => setBookingModalTxnID(null)}
+            />
+          </div>
+        </ModalOverlay>
+      )}
+
+      {/* ── Modal: 乘客資料已儲存 ── */}
+      {showUnpaidModal && (
+        <ModalOverlay maxWidth="460px">
+          <div style={{ padding: '36px 28px', textAlign: 'center' }}>
+            <div style={{ fontSize: '52px', marginBottom: '14px' }}>📋</div>
+            <h3 style={{ color: 'var(--primary-color)', marginBottom: '12px' }}>乘客資料已儲存！</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.8', marginBottom: '28px' }}>
+              您的機票已成功建立，目前狀態為「待付款」。<br />
+              請前往「交易紀錄」頁面完成付款，<br />
+              付款確認後即可取得有效機票。
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button className="btn" style={{ width: 'auto', padding: '8px 24px', marginTop: 0 }}
+                onClick={() => { setShowUnpaidModal(false); setActiveTab('transactions'); }}>
+                前往交易紀錄
+              </button>
+              <button className="btn btn-secondary" style={{ width: 'auto', padding: '8px 18px', marginTop: 0 }}
+                onClick={() => setShowUnpaidModal(false)}>關閉</button>
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
 
       {/* Header */}
       <div className="dashboard-header">
@@ -151,7 +253,7 @@ function JourneyManager({ user, onLogout }) {
         </div>
       </div>
 
-      {/* Tab bar (hidden during search view) */}
+      {/* Tab bar */}
       {!isSearchResultView && (
         <div style={{ display: 'flex', gap: '4px', padding: '0 24px', borderBottom: '1px solid var(--border-color)' }}>
           {[
@@ -172,31 +274,6 @@ function JourneyManager({ user, onLogout }) {
 
       <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-        {/* ── Banner: paid booking confirmation ── */}
-        {lastPaidTxnID && !isSearchResultView && (
-          <BookingConfirmation
-            transactionID={lastPaidTxnID}
-            memberID={user.memberID}
-            onClose={() => setLastPaidTxnID(null)}
-          />
-        )}
-
-        {/* ── Banner: saved as unpaid ── */}
-        {lastBookingUnpaid && !isSearchResultView && (
-          <div className="card" style={{ border: '2px solid rgba(99,102,241,0.4)', position: 'relative', animation: 'fadeIn 0.4s ease' }}>
-            <button className="btn btn-secondary"
-              style={{ position: 'absolute', top: '16px', right: '16px', width: 'auto', padding: '4px 12px', fontSize: '13px', marginTop: 0 }}
-              onClick={() => setLastBookingUnpaid(false)}>關閉</button>
-            <div style={{ textAlign: 'center', padding: '8px 0 4px' }}>
-              <div style={{ fontSize: '40px', marginBottom: '8px' }}>📋</div>
-              <h3 style={{ color: 'var(--primary-color)', marginBottom: '6px' }}>乘客資料已儲存！</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                機票已儲存為「待付款」狀態，可在下方「待付款機票」區塊進行付款。
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* ══════════════════════════════════════
             TAB 1: 會員專區
         ══════════════════════════════════════ */}
@@ -204,15 +281,91 @@ function JourneyManager({ user, onLogout }) {
           <>
             {!isSearchResultView && (
               <div className="card">
-                <div className="card-title">會員資料</div>
+                {/* Card title + pencil icon */}
+                <div className="card-title" style={{ position: 'relative' }}>
+                  會員資料
+                  <button
+                    onClick={isEditingProfile
+                      ? () => { setIsEditingProfile(false); setProfileError(''); }
+                      : openProfileEdit}
+                    title={isEditingProfile ? '取消' : '編輯帳號設定'}
+                    style={{
+                      position: 'absolute', top: '50%', right: 0,
+                      transform: 'translateY(-50%)',
+                      background: isEditingProfile ? '#f1f5f9' : 'none',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '8px', cursor: 'pointer',
+                      padding: '7px 18px', fontSize: '14px', fontWeight: '500',
+                      color: 'var(--text-secondary)', lineHeight: 1
+                    }}>
+                    {isEditingProfile ? '取消' : '編輯'}
+                  </button>
+                </div>
+
                 <div className="member-info">
                   <span className="info-label">會員編號</span>
                   <div className="info-value" style={{ color: '#818cf8', borderColor: 'rgba(129,140,248,0.3)' }}>{user.memberID}</div>
                 </div>
-                <div className="member-info" style={{ marginBottom: 0 }}>
+                <div className="member-info" style={{ marginBottom: isEditingProfile ? '20px' : 0 }}>
                   <span className="info-label">信箱</span>
                   <div className="info-value">{user.memberMail}</div>
                 </div>
+
+                {isEditingProfile && (
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px', animation: 'fadeIn 0.3s ease' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      修改密碼
+                    </div>
+                    <div className="form-group">
+                      <label>目前密碼</label>
+                      <input type="password" value={profileForm.currentPassword}
+                        onChange={e => setProfileForm(p => ({ ...p, currentPassword: e.target.value }))}
+                        placeholder="請輸入目前密碼" />
+                    </div>
+                    <div className="form-group">
+                      <label>
+                        新密碼
+                        <span style={{ color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '6px' }}>(若不修改請留空)</span>
+                      </label>
+                      <input type="password" value={profileForm.newPassword}
+                        onChange={e => setProfileForm(p => ({ ...p, newPassword: e.target.value }))}
+                        placeholder="請輸入新密碼" />
+                    </div>
+                    <div className="form-group">
+                      <label>確認新密碼</label>
+                      <input type="password" value={profileForm.confirmPassword}
+                        onChange={e => setProfileForm(p => ({ ...p, confirmPassword: e.target.value }))}
+                        placeholder="再次輸入新密碼" />
+                    </div>
+
+                    {profileError && (
+                      <p style={{ color: 'var(--error-color)', fontSize: '13px', marginBottom: '14px' }}>{profileError}</p>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <button type="button" onClick={handleDeleteAccount}
+                        style={{
+                          background: 'none', border: '1px solid rgba(239,68,68,0.5)',
+                          color: '#ef4444', borderRadius: '8px',
+                          padding: '7px 14px', cursor: 'pointer', fontSize: '13px', fontWeight: '500'
+                        }}>
+                        申請刪除帳號
+                      </button>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn btn-secondary"
+                          style={{ width: 'auto', padding: '7px 16px', marginTop: 0 }}
+                          onClick={() => { setIsEditingProfile(false); setProfileError(''); }}>
+                          取消
+                        </button>
+                        <button className="btn"
+                          style={{ width: 'auto', padding: '7px 20px', marginTop: 0 }}
+                          onClick={handleProfileSave}>
+                          確定
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -292,146 +445,137 @@ function JourneyManager({ user, onLogout }) {
             TAB 2: 機票紀錄
         ══════════════════════════════════════ */}
         {activeTab === 'tickets' && !isSearchResultView && (
-          <>
-            {tickets.length === 0 ? (
-              <div className="card"><div className="empty-state"><p>目前尚無機票紀錄。</p></div></div>
-            ) : (
-              <>
-                {/* Pay unpaid section */}
-                {unpaidCount > 0 && (
-                  <div className="card" style={{ border: '2px solid rgba(251,191,36,0.4)' }}>
-                    <div className="card-title" style={{ color: '#f59e0b' }}>⚠ 待付款機票</div>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                      共 {unpaidCount} 張機票待付款，合計 TWD {unpaidTotal.toLocaleString()}
-                    </p>
-                    {showPayUnpaid ? (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
-                          <label>信用卡號</label>
-                          <input type="text" value={payUnpaidForm.cardID}
-                            onChange={e => setPayUnpaidForm(p => ({ ...p, cardID: e.target.value }))}
-                            placeholder="**** **** **** ****" />
+          tickets.length === 0 ? (
+            <div className="card"><div className="empty-state"><p>目前尚無機票紀錄。</p></div></div>
+          ) : (
+            <div className="card">
+              <div className="card-title">機票紀錄 (Tickets)</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {tickets.map(ticket => {
+                  const statusColor = ticket.status === 'Refunded' ? '#ef4444'
+                    : ticket.status === 'Unpaid' ? '#f59e0b' : '#22c55e';
+                  const statusBg = ticket.status === 'Refunded' ? 'rgba(239,68,68,0.12)'
+                    : ticket.status === 'Unpaid' ? 'rgba(251,191,36,0.15)' : 'rgba(34,197,94,0.12)';
+                  const statusLabel = ticket.status === 'Refunded' ? '已退票'
+                    : ticket.status === 'Unpaid' ? '待付款' : '有效 Valid';
+                  return (
+                    <div key={ticket.ticketID} style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', opacity: ticket.status === 'Refunded' ? 0.6 : 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '12px' }}>
+                        <div style={{ fontWeight: '600' }}>
+                          機票號: <span style={{ color: 'var(--primary-color)', fontFamily: 'monospace' }}>{ticket.ticketID}</span>
                         </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>銀行代號</label>
-                          <input type="text" value={payUnpaidForm.bankID}
-                            onChange={e => setPayUnpaidForm(p => ({ ...p, bankID: e.target.value }))}
-                            placeholder="013" />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>銀行名稱</label>
-                          <input type="text" value={payUnpaidForm.bankname}
-                            onChange={e => setPayUnpaidForm(p => ({ ...p, bankname: e.target.value }))}
-                            placeholder="國泰世華" />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>卡別</label>
-                          <select value={payUnpaidForm.cardtype}
-                            onChange={e => setPayUnpaidForm(p => ({ ...p, cardtype: e.target.value }))}>
-                            <option>VISA</option><option>MasterCard</option><option>JCB</option>
-                          </select>
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>到期日</label>
-                          <input type="month" value={payUnpaidForm.dueDate}
-                            onChange={e => setPayUnpaidForm(p => ({ ...p, dueDate: e.target.value }))} />
-                        </div>
-                        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                          <button className="btn" style={{ width: 'auto', padding: '6px 16px', marginTop: 0 }}
-                            onClick={handlePayUnpaid}
-                            disabled={!payUnpaidForm.cardID || !payUnpaidForm.bankID || !payUnpaidForm.bankname || !payUnpaidForm.dueDate}>
-                            確認付款
-                          </button>
-                          <button className="btn btn-secondary" style={{ width: 'auto', padding: '6px 16px', marginTop: 0 }}
-                            onClick={() => setShowPayUnpaid(false)}>取消</button>
-                        </div>
+                        <span style={{ padding: '2px 10px', borderRadius: '12px', fontSize: '13px', fontWeight: '600', background: statusBg, color: statusColor }}>
+                          {statusLabel}
+                        </span>
                       </div>
-                    ) : (
-                      <button className="btn"
-                        style={{ width: 'auto', padding: '8px 20px', marginTop: 0, background: '#f59e0b', boxShadow: '0 4px 14px rgba(245,158,11,0.3)' }}
-                        onClick={() => setShowPayUnpaid(true)}>前往付款</button>
-                    )}
-                  </div>
-                )}
-
-                {/* Ticket list */}
-                <div className="card">
-                  <div className="card-title">機票紀錄 (Tickets)</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {tickets.map(ticket => {
-                      const statusColor = ticket.status === 'Refunded' ? '#ef4444'
-                        : ticket.status === 'Unpaid' ? '#f59e0b' : '#22c55e';
-                      const statusBg = ticket.status === 'Refunded' ? 'rgba(239,68,68,0.12)'
-                        : ticket.status === 'Unpaid' ? 'rgba(251,191,36,0.15)' : 'rgba(34,197,94,0.12)';
-                      const statusLabel = ticket.status === 'Refunded' ? '已退票'
-                        : ticket.status === 'Unpaid' ? '待付款' : '有效 Valid';
-                      return (
-                        <div key={ticket.ticketID} style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', opacity: ticket.status === 'Refunded' ? 0.6 : 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '12px' }}>
-                            <div style={{ fontWeight: '600' }}>
-                              機票號: <span style={{ color: 'var(--primary-color)', fontFamily: 'monospace' }}>{ticket.ticketID}</span>
-                            </div>
-                            <span style={{ padding: '2px 10px', borderRadius: '12px', fontSize: '13px', fontWeight: '600', background: statusBg, color: statusColor }}>
-                              {statusLabel}
-                            </span>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '14px', marginBottom: '12px' }}>
-                            <div><span style={{ color: 'var(--text-secondary)' }}>乘客</span><br /><strong>{ticket.passengerName}</strong></div>
-                            <div><span style={{ color: 'var(--text-secondary)' }}>航段</span><br /><strong>{ticket.itineraryID}</strong></div>
-                            <div><span style={{ color: 'var(--text-secondary)' }}>艙等</span><br /><strong>{ticket.cabin}</strong></div>
-                            <div><span style={{ color: 'var(--text-secondary)' }}>票價</span><br /><strong style={{ color: '#22c55e' }}>TWD {ticket.ticketTotalPrice.toLocaleString()}</strong></div>
-                          </div>
-                          {ticket.status === 'Valid' && (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                              <button className="btn btn-secondary"
-                                style={{ width: 'auto', padding: '5px 14px', fontSize: '13px', marginTop: 0, color: '#ef4444', borderColor: 'rgba(239,68,68,0.4)' }}
-                                onClick={() => handleRefund(ticket.ticketID)}>申請退票</button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '14px' }}>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>乘客</span><br /><strong>{ticket.passengerName}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>航段</span><br /><strong>{ticket.itineraryID}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>艙等</span><br /><strong>{ticket.cabin}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>票價</span><br /><strong style={{ color: '#22c55e' }}>TWD {ticket.ticketTotalPrice.toLocaleString()}</strong></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )
         )}
 
         {/* ══════════════════════════════════════
             TAB 3: 交易紀錄
         ══════════════════════════════════════ */}
         {activeTab === 'transactions' && !isSearchResultView && (
-          transactions.length === 0 ? (
-            <div className="card"><div className="empty-state"><p>目前尚無交易紀錄。</p></div></div>
-          ) : (
-            <div className="card">
-              <div className="card-title">交易紀錄 (Transactions)</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {transactions.map(txn => (
-                  <div key={txn.transactionID} style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                      <div style={{ fontWeight: '600' }}>
-                        交易編號: <span style={{ color: 'var(--primary-color)', fontFamily: 'monospace' }}>{txn.transactionID}</span>
-                      </div>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{new Date(txn.transtime).toLocaleString()}</div>
+          <>
+            {/* 待付款區塊 */}
+            {unpaidCount > 0 && (
+              <div className="card" style={{ border: '2px solid rgba(251,191,36,0.4)' }}>
+                <div className="card-title" style={{ color: '#f59e0b' }}>⚠ 待付款機票</div>
+                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  共 {unpaidCount} 張機票待付款，合計 TWD {unpaidTotal.toLocaleString()}
+                </p>
+                {showPayUnpaid ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                      <label>信用卡號</label>
+                      <input type="text" value={payUnpaidForm.cardID}
+                        onChange={e => setPayUnpaidForm(p => ({ ...p, cardID: e.target.value }))}
+                        placeholder="**** **** **** ****" />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '14px' }}>
-                      <div><span style={{ color: 'var(--text-secondary)' }}>總金額</span><br /><strong style={{ color: '#22c55e' }}>TWD {txn.totalAmount.toLocaleString()}</strong></div>
-                      <div><span style={{ color: 'var(--text-secondary)' }}>付款方式</span><br /><strong>{txn.payment}</strong></div>
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>信用卡</span><br />
-                        <strong>**** **** **** {(txn.cardDetails.cardID || '').slice(-4)}</strong>
-                        <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
-                          {txn.cardDetails.bankname} · {txn.cardDetails.cardtype}
-                        </span>
-                      </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>銀行代號</label>
+                      <input type="text" value={payUnpaidForm.bankID}
+                        onChange={e => setPayUnpaidForm(p => ({ ...p, bankID: e.target.value }))}
+                        placeholder="013" />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>銀行名稱</label>
+                      <input type="text" value={payUnpaidForm.bankname}
+                        onChange={e => setPayUnpaidForm(p => ({ ...p, bankname: e.target.value }))}
+                        placeholder="國泰世華" />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>卡別</label>
+                      <select value={payUnpaidForm.cardtype}
+                        onChange={e => setPayUnpaidForm(p => ({ ...p, cardtype: e.target.value }))}>
+                        <option>VISA</option><option>MasterCard</option><option>JCB</option>
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>到期日</label>
+                      <input type="month" value={payUnpaidForm.dueDate}
+                        onChange={e => setPayUnpaidForm(p => ({ ...p, dueDate: e.target.value }))} />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <button className="btn" style={{ width: 'auto', padding: '6px 16px', marginTop: 0 }}
+                        onClick={handlePayUnpaid}
+                        disabled={!payUnpaidForm.cardID || !payUnpaidForm.bankID || !payUnpaidForm.bankname || !payUnpaidForm.dueDate}>
+                        確認付款
+                      </button>
+                      <button className="btn btn-secondary" style={{ width: 'auto', padding: '6px 16px', marginTop: 0 }}
+                        onClick={() => setShowPayUnpaid(false)}>取消</button>
                     </div>
                   </div>
-                ))}
+                ) : (
+                  <button className="btn"
+                    style={{ width: 'auto', padding: '8px 20px', marginTop: 0, background: '#f59e0b', boxShadow: '0 4px 14px rgba(245,158,11,0.3)' }}
+                    onClick={() => setShowPayUnpaid(true)}>前往付款</button>
+                )}
               </div>
-            </div>
-          )
+            )}
+
+            {/* 交易紀錄列表 */}
+            {transactions.length === 0 ? (
+              <div className="card"><div className="empty-state"><p>目前尚無交易紀錄。</p></div></div>
+            ) : (
+              <div className="card">
+                <div className="card-title">交易紀錄 (Transactions)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {transactions.map(txn => (
+                    <div key={txn.transactionID} style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ fontWeight: '600' }}>
+                          交易編號: <span style={{ color: 'var(--primary-color)', fontFamily: 'monospace' }}>{txn.transactionID}</span>
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{new Date(txn.transtime).toLocaleString()}</div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '14px' }}>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>總金額</span><br /><strong style={{ color: '#22c55e' }}>TWD {txn.totalAmount.toLocaleString()}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>付款方式</span><br /><strong>{txn.payment}</strong></div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>信用卡</span><br />
+                          <strong>**** **** **** {(txn.cardDetails.cardID || '').slice(-4)}</strong>
+                          <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                            {txn.cardDetails.bankname} · {txn.cardDetails.cardtype}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
       </div>
