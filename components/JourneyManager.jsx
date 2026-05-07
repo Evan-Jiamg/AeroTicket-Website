@@ -226,7 +226,7 @@ function JourneyManager({ user, onLogout }) {
         <ModalOverlay maxWidth="460px">
           <div style={{ padding: '36px 28px', textAlign: 'center' }}>
             <div style={{ fontSize: '52px', marginBottom: '14px' }}>📋</div>
-            <h3 style={{ color: 'var(--primary-color)', marginBottom: '12px' }}>乘客資料已儲存！</h3>
+            <h3 style={{ color: 'var(--primary-color)', marginBottom: '12px' }}>機票資料已儲存！</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.8', marginBottom: '28px' }}>
               您的機票已成功建立，目前狀態為「待付款」。<br />
               請前往「交易紀錄」頁面完成付款，<br />
