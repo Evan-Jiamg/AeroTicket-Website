@@ -213,6 +213,10 @@ body {
   to { opacity: 1; }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Dashboard styles */
 .dashboard-container {
   background: var(--surface-color);

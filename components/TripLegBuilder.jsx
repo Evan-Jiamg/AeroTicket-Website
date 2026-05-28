@@ -21,6 +21,10 @@ function TripLegBuilder({ selectedFlight, journeyInfo, onCancel, onSuccess }) {
     cardID: '', bankID: '', bankname: '', cardtype: 'VISA', dueDate: ''
   });
 
+  // Payment modal: null | 'processing' | 'success'
+  const [paymentModalStatus, setPaymentModalStatus] = useStateTLB(null);
+  const [pendingTxnID, setPendingTxnID] = useStateTLB(null);
+
   // ── Helpers ──────────────────────────────────────────────
   const handlePeopleNumChange = (legIndex, num) => {
     const n = Math.max(1, parseInt(num) || 1);
@@ -106,7 +110,7 @@ function TripLegBuilder({ selectedFlight, journeyInfo, onCancel, onSuccess }) {
     setCurrentStep(4);
   };
 
-  // ── Step 4: pay now ──
+  // ── Step 4: pay now → show external payment modal ──
   const handlePayNow = () => {
     const totalAmount   = savedTickets.reduce((s, t) => s + t.ticketTotalPrice, 0);
     const transactionID = 'TXN' + Math.random().toString(36).substring(2, 9).toUpperCase();
@@ -130,10 +134,10 @@ function TripLegBuilder({ selectedFlight, journeyInfo, onCancel, onSuccess }) {
     localStorage.setItem('aeroTicketTransactions', JSON.stringify(allTransactions));
     localStorage.setItem('aeroTicketTickets',      JSON.stringify(allTickets));
 
-    onSuccess(transactionID);
+    setPendingTxnID(transactionID);
+    setPaymentModalStatus('processing');
+    setTimeout(() => setPaymentModalStatus('success'), 1500);
   };
-
-  const handleSkipPayment = () => onSuccess(null);
 
   const isPaymentValid = paymentForm.cardID.trim() && paymentForm.bankID.trim()
     && paymentForm.bankname.trim() && paymentForm.dueDate;
@@ -143,11 +147,77 @@ function TripLegBuilder({ selectedFlight, journeyInfo, onCancel, onSuccess }) {
     1: '步驟一：確認搭乘人數',
     2: '步驟二：填寫乘客資料',
     3: '步驟三：選擇艙等',
-    4: '步驟四：付款（可選）'
+    4: '步驟四：付款'
+  };
+
+  // ── External payment modal (portal) ──────────────────────
+  const PaymentModal = () => {
+    const isProcessing = paymentModalStatus === 'processing';
+    const content = (
+      <div style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: '20px'
+      }}>
+        <div style={{
+          background: 'white', borderRadius: '16px', width: '100%', maxWidth: '420px',
+          overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.25)'
+        }}>
+          {/* 外部系統標題列 */}
+          <div style={{
+            background: 'linear-gradient(135deg, #1e3a5f, #2563eb)',
+            padding: '16px 24px', display: 'flex', alignItems: 'center', gap: '10px'
+          }}>
+            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }} />
+            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b' }} />
+            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e' }} />
+            <span style={{ color: 'white', fontSize: '13px', fontWeight: '600', marginLeft: '8px', letterSpacing: '0.03em' }}>
+              AeroPay 安全交易系統
+            </span>
+          </div>
+
+          <div style={{ padding: '40px 32px', textAlign: 'center' }}>
+            {isProcessing ? (
+              <>
+                <div style={{
+                  width: '56px', height: '56px', borderRadius: '50%',
+                  border: '5px solid #e2e8f0', borderTopColor: '#2563eb',
+                  animation: 'spin 0.9s linear infinite',
+                  margin: '0 auto 24px'
+                }} />
+                <h3 style={{ fontSize: '17px', marginBottom: '10px', color: '#1e3a5f' }}>正在處理付款</h3>
+                <p style={{ color: '#64748b', fontSize: '14px' }}>請勿關閉視窗，正在連線銀行驗證中...</p>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '60px', marginBottom: '16px' }}>✅</div>
+                <h3 style={{ fontSize: '20px', color: '#15803d', marginBottom: '8px' }}>付款成功！</h3>
+                <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '6px' }}>交易編號</p>
+                <p style={{ fontFamily: 'monospace', fontSize: '15px', fontWeight: '700', color: '#1e3a5f', marginBottom: '28px', letterSpacing: '0.05em' }}>
+                  {pendingTxnID}
+                </p>
+                <button className="btn"
+                  style={{ width: 'auto', padding: '10px 36px', marginTop: 0, background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', boxShadow: '0 4px 14px rgba(37,99,235,0.35)' }}
+                  onClick={() => onSuccess(pendingTxnID)}>
+                  查看機票紀錄
+                </button>
+              </>
+            )}
+          </div>
+
+          <div style={{ background: '#f8fafc', padding: '10px 24px', textAlign: 'center', borderTop: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>🔒 256-bit SSL 加密保護</span>
+          </div>
+        </div>
+      </div>
+    );
+    return ReactDOM.createPortal(content, document.body);
   };
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease', marginTop: '24px' }}>
+
+      {paymentModalStatus && <PaymentModal />}
 
       {/* Flight summary */}
       <div style={{ marginBottom: '24px', padding: '16px', background: 'rgba(99,102,241,0.06)', borderRadius: '8px', border: '1px solid rgba(99,102,241,0.15)' }}>
@@ -329,14 +399,7 @@ function TripLegBuilder({ selectedFlight, journeyInfo, onCancel, onSuccess }) {
               disabled={!isPaymentValid} style={{ opacity: isPaymentValid ? 1 : 0.5 }}>
               確認付款 TWD {totalPrice.toLocaleString()}
             </button>
-            <button type="button" className="btn btn-secondary" onClick={handleSkipPayment}>
-              暫不付款（儲存待付款）
-            </button>
           </div>
-
-          <p style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>
-            選擇「暫不付款」後，可在「交易紀錄」分頁隨時完成付款。
-          </p>
         </div>
       )}
     </div>
