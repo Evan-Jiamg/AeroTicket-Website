@@ -172,7 +172,7 @@ function TripLegBuilder({ selectedFlight, journeyInfo, onCancel, onSuccess }) {
             <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b' }} />
             <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e' }} />
             <span style={{ color: 'white', fontSize: '13px', fontWeight: '600', marginLeft: '8px', letterSpacing: '0.03em' }}>
-              AeroPay 安全交易系統
+              信用卡安全交易系統
             </span>
           </div>
 
